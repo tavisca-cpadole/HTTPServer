@@ -103,7 +103,12 @@ namespace HttpServer
 
 
     public class HTTPServer {
-
+        Response responseGenrate = new Response();
+        Parser parser = new Parser();
+        Dispatch dispatch = new Dispatch();
+        WebsiteFactory websiteFactory = new WebsiteFactory();
+        Error error = new Error();
+        Request request = new Request();
         FileSystem fileSystem = new FileSystem();
         public HttpListener httpListener;
         public HTTPServer(HttpListener httpListener)
@@ -135,15 +140,10 @@ namespace HttpServer
             {
                 HttpListenerContext context = httpListener.GetContext();
                 HttpListenerResponse response = context.Response;
-                Response responseGenrate = new Response();
-                Parser parser = new Parser();
-                Dispatch dispatch = new Dispatch();
-                WebsiteFactory websiteFactory = new WebsiteFactory();
-                Error error = new Error();
-                Request request = new Request();
+                
                 parser.URLParser(context.Request.Url.ToString());
 
-                string page = dispatch.Applist[parser.BasePath] + context.Request.Url.LocalPath;
+                
                 //Console.WriteLine(page);
 
                 try
@@ -165,23 +165,36 @@ namespace HttpServer
                     var cleaned_data = request.GetRequestData(context);
                     if (cleaned_data.Length>0)
                     {
-                        JObject jsonObj = JObject.Parse(cleaned_data);
-                        //var year = currencies.SelectToken("year");
-                        Dictionary<string, string> dictObj = jsonObj.ToObject<Dictionary<string, string>>();
-                        string data="";
-                        foreach (var item in dictObj) {
-                            data+=item.Value;
+                        try
+                        {
+                            JObject jsonObj = JObject.Parse(cleaned_data);
+                            //var year = currencies.SelectToken("year");
+                            Dictionary<string, string> dictObj = jsonObj.ToObject<Dictionary<string, string>>();
+                            string data = "";
+                            foreach (var item in dictObj)
+                            {
+                                data += item.Value;
+                            }
+
+                            //byte[] buffer = Encoding.UTF8.GetBytes(data.ToString());
+
+                            //response.ContentLength64 = buffer.Length;
+                            //Stream st = response.OutputStream;
+                            //st.Write(buffer, 0, buffer.Length);
+                            //response.StatusCode();
+                            responseGenrate.ResponseGenrator(data, response);
+                            
                         }
-
-                        //byte[] buffer = Encoding.UTF8.GetBytes(data.ToString());
-
-                        //response.ContentLength64 = buffer.Length;
-                        //Stream st = response.OutputStream;
-                        //st.Write(buffer, 0, buffer.Length);
-                        responseGenrate.ResponseGenrator(data,response);
+                        catch
+                        {
+                            //responseGenrate.ResponseGenrator("BAD REQUEST DATA", response);
+                            context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
+                            responseGenrate.ResponseGenrator("BAD REQUEST DATA", response);
+                        }
                     }
                     else
                     {
+                        string page = dispatch.Applist[parser.BasePath] + context.Request.Url.LocalPath;
                         IWebsite website = websiteFactory.GetWebsite(page);
                         website.Handle(responseGenrate, context, page, response);
                     }
