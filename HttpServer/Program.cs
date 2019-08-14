@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using Newtonsoft.Json.Linq;
@@ -17,6 +19,9 @@ namespace HttpServer
             HTTPServer hTTPServer = new HTTPServer(httpListener);
             hTTPServer.AddPrefix("http://localhost:8080/");
             hTTPServer.StartServer();
+
+            
+            //Console.ReadKey();
         }
     }
 
@@ -47,6 +52,11 @@ namespace HttpServer
             Uri uri = new Uri(path);
             BasePath = uri.GetLeftPart(System.UriPartial.Authority);
             LocalPath = uri.AbsolutePath;
+        }
+
+        public string ApiParser()
+        {
+            return LocalPath.Replace("/api/","");
         }
     }
 
@@ -133,6 +143,7 @@ namespace HttpServer
             }
         }
 
+
         public void Run()
         {
             httpListener.Start();
@@ -142,66 +153,93 @@ namespace HttpServer
                 HttpListenerResponse response = context.Response;
                 
                 parser.URLParser(context.Request.Url.ToString());
-
                 
-                //Console.WriteLine(page);
-
-                try
+                if (parser.LocalPath.Contains("/api/"))
                 {
-                    //if ((parser.LocalPath).ToLowerInvariant() == "/year")
-                    //{
-                    //    var data_text = new StreamReader(context.Request.InputStream,
-                    //    context.Request.ContentEncoding).ReadToEnd();
-                    //    var cleaned_data = System.Web.HttpUtility.UrlDecode(data_text);
-
-                    //    JObject currencies = JObject.Parse(cleaned_data);
-                    //    var year = currencies.SelectToken("year");
-                    //    byte[] buffer = Encoding.UTF8.GetBytes(year.ToString());
-
-                    //    response.ContentLength64 = buffer.Length;
-                    //    Stream st = response.OutputStream;
-                    //    st.Write(buffer, 0, buffer.Length);
-                    //}
-                    var cleaned_data = request.GetRequestData(context);
-                    if (cleaned_data.Length>0)
+                    MethodTypeHelper method = new MethodTypeHelper();
+                    
+                    string methodName=method.GetMethod(context.Request.HttpMethod,parser.ApiParser());
+                   
+                    if (methodName != "No Such Method")
                     {
-                        try
+                        
+                        APIOperation aPIOperation = new APIOperation();
+                        var cleaned_data = request.GetRequestData(context);
+                        JObject jsonObj = JObject.Parse(cleaned_data);
+                        Dictionary<string, string> dictObj = jsonObj.ToObject<Dictionary<string, string>>();
+                        string data = "";
+                        foreach (var item in dictObj)
                         {
-                            JObject jsonObj = JObject.Parse(cleaned_data);
-                            //var year = currencies.SelectToken("year");
-                            Dictionary<string, string> dictObj = jsonObj.ToObject<Dictionary<string, string>>();
-                            string data = "";
-                            foreach (var item in dictObj)
-                            {
-                                data += item.Value;
-                            }
-
-                            //byte[] buffer = Encoding.UTF8.GetBytes(data.ToString());
-
-                            //response.ContentLength64 = buffer.Length;
-                            //Stream st = response.OutputStream;
-                            //st.Write(buffer, 0, buffer.Length);
-                            //response.StatusCode();
-                            responseGenrate.ResponseGenrator(data, response);
-                            
+                            data += item.Value;
                         }
-                        catch
-                        {
-                            //responseGenrate.ResponseGenrator("BAD REQUEST DATA", response);
-                            context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-                            responseGenrate.ResponseGenrator("BAD REQUEST DATA", response);
-                        }
-                    }
-                    else
-                    {
-                        string page = dispatch.Applist[parser.BasePath] + context.Request.Url.LocalPath;
-                        IWebsite website = websiteFactory.GetWebsite(page);
-                        website.Handle(responseGenrate, context, page, response);
+                        var output = aPIOperation.GetType().GetMethod(methodName).Invoke(aPIOperation, new object[] { data });
+                        responseGenrate.ResponseGenrator(output.ToString(), response);
                     }
                 }
-                catch
+                else
                 {
-                    error.Error404NotFound(dispatch,responseGenrate,response,context,page);
+                    string page = dispatch.Applist[parser.BasePath] + parser.LocalPath;
+
+                    //Console.WriteLine(page);
+
+                    try
+                    {
+                        //if ((parser.LocalPath).ToLowerInvariant() == "/year")
+                        //{
+                        //    var data_text = new StreamReader(context.Request.InputStream,
+                        //    context.Request.ContentEncoding).ReadToEnd();
+                        //    var cleaned_data = System.Web.HttpUtility.UrlDecode(data_text);
+
+                        //    JObject currencies = JObject.Parse(cleaned_data);
+                        //    var year = currencies.SelectToken("year");
+                        //    byte[] buffer = Encoding.UTF8.GetBytes(year.ToString());
+
+                        //    response.ContentLength64 = buffer.Length;
+                        //    Stream st = response.OutputStream;
+                        //    st.Write(buffer, 0, buffer.Length);
+                        //}
+
+                        //var cleaned_data = request.GetRequestData(context);
+                        //if (cleaned_data.Length>0)
+                        //{
+                        //    try
+                        //    {
+                        //        JObject jsonObj = JObject.Parse(cleaned_data);
+                        //        //var year = currencies.SelectToken("year");
+                        //        Dictionary<string, string> dictObj = jsonObj.ToObject<Dictionary<string, string>>();
+                        //        string data = "";
+                        //        foreach (var item in dictObj)
+                        //        {
+                        //            data += item.Value;
+                        //        }
+
+                        //        //byte[] buffer = Encoding.UTF8.GetBytes(data.ToString());
+
+                        //        //response.ContentLength64 = buffer.Length;
+                        //        //Stream st = response.OutputStream;
+                        //        //st.Write(buffer, 0, buffer.Length);
+                        //        //response.StatusCode();
+                        //        responseGenrate.ResponseGenrator(data, response);
+
+                        //    }
+                        //    catch
+                        //    {
+                        //        //responseGenrate.ResponseGenrator("BAD REQUEST DATA", response);
+                        //        context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
+                        //        responseGenrate.ResponseGenrator("BAD REQUEST DATA", response);
+                        //    }
+                        //}
+                        //else
+                        {
+
+                            IWebsite website = websiteFactory.GetWebsite(page);
+                            website.Handle(responseGenrate, context, page, response);
+                        }
+                    }
+                    catch
+                    {
+                        error.Error404NotFound(dispatch, responseGenrate, response, context, page);
+                    }
                 }
             }
         }
