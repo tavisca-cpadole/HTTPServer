@@ -1,12 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Net;
-using System.Reflection;
-using System.Text;
-using System.Threading;
+﻿using Autofac;
 using Newtonsoft.Json.Linq;
+using System.Collections.Generic;
+using System.Net;
 
 
 namespace HttpServer
@@ -15,117 +10,65 @@ namespace HttpServer
     {
         static void Main(string[] args)
         {
-            HttpListener httpListener = new HttpListener();
-            HTTPServer hTTPServer = new HTTPServer(httpListener);
-            hTTPServer.AddPrefix("http://localhost:8080/");
-            hTTPServer.StartServer();
 
-            
-            //Console.ReadKey();
-        }
-    }
+            var container = ContainerConfig.Configure();
 
-    public class Error {
-        public void Error404NotFound(Dispatch dispatch,Response responseGenrate,HttpListenerResponse response,HttpListenerContext context,string path) {
-            path = dispatch.Applist["error"] + "404.html";
-            responseGenrate.ResponseGenrator(path, response);
-            context.Response.Close();
-        }
-    }
-
-    public class FileSystem
-    {
-        public bool FileExistsCheck(string physicalPath)
-        {
-            if (File.Exists(physicalPath))
-                return true;
-            else
-                return false;
-        }
-    }
-
-    public class Parser {
-        public string BasePath { get; set; }
-        public string LocalPath { get; set; }
-
-        public void URLParser(string path) {
-            Uri uri = new Uri(path);
-            BasePath = uri.GetLeftPart(System.UriPartial.Authority);
-            LocalPath = uri.AbsolutePath;
-        }
-
-        public string ApiParser()
-        {
-            return LocalPath.Replace("/api/","");
-        }
-    }
-
-    public class Dispatch
-    {
-        private Dictionary<string, string> applist = new Dictionary<string, string>()
-        {
-            { "http://localhost:8080","C:/Users/cpadole/Documents/localhost/"},
-            { "error","C:/Users/cpadole/Documents/Error/"}
-        };
-
-        public Dictionary<string, string> Applist { get => applist; }
-    }
-
-    public class WebsiteFactory {
-        public IWebsite GetWebsite(string path) {
-            if (Directory.Exists(path))
+            using (var scope = container.BeginLifetimeScope())
             {
-                return new DynamicWebsite();
-            }
-            else if (File.Exists(path))
-            {
-                return new StaticWebsite();
-            }
-            else {
-                throw new NotImplementedException();
+                var app = scope.Resolve<IApplication>();
+                app.Run();
             }
         }
-
-       
     }
 
-    public interface IWebsite {
-         void Handle(Response responseGenrate, HttpListenerContext context, string path,HttpListenerResponse response);
-    }
+    //public class WebsiteFactory
+    //{
+    //    public IWebsite GetWebsite(string path)
+    //    {
+    //        if (Directory.Exists(path))
+    //        {
+    //            return new DynamicWebsite();
+    //        }
+    //        else if (File.Exists(path))
+    //        {
+    //            return new StaticWebsite();
+    //        }
+    //        else
+    //        {
+    //            throw new NotImplementedException();
+    //        }
+    //    }
 
-    public class StaticWebsite : IWebsite
+
+    //}
+
+
+    public class HTTPServer : IHTTPServer
     {
-        public void Handle(Response responseGenrate,HttpListenerContext context,string path, HttpListenerResponse response)
-        {          
-            responseGenrate.ResponseGenrator(path, response);
-            context.Response.Close();
-        }
-    }
+
+        IParser _parser;
+        IWebsite _website;
+        IError _error;
 
 
-    public class DynamicWebsite : IWebsite
-    {
-        public void Handle(Response responseGenrate, HttpListenerContext context, string path, HttpListenerResponse response)
+        IResponse _responseGenrate;
+        IDispatch _dispatch;
+        IRequest _request;
+        private HttpListener httpListener = new HttpListener();
+
+        public HTTPServer(IParser parser, IWebsite website, IError error, IResponse responseGenrate, IDispatch dispatch, IRequest request)
         {
-            throw new NotImplementedException();
+            _parser = parser;
+            _website = website;
+            _error = error;
+
+            _responseGenrate = responseGenrate;
+            _dispatch = dispatch;
+            _request = request;
         }
-    }
 
-
-    public class HTTPServer {
-        Response responseGenrate = new Response();
-        Parser parser = new Parser();
-        Dispatch dispatch = new Dispatch();
-        WebsiteFactory websiteFactory = new WebsiteFactory();
-        Error error = new Error();
-        Request request = new Request();
-        FileSystem fileSystem = new FileSystem();
-        public HttpListener httpListener;
-        public HTTPServer(HttpListener httpListener)
+        public void AddPrefix(string prefix)
         {
-            this.httpListener = httpListener;
-        }
-        public void AddPrefix(string prefix) {
             httpListener.Prefixes.Add(prefix);
         }
 
@@ -133,8 +76,9 @@ namespace HttpServer
         {
             try
             {
-                Thread listnerThread = new Thread(new ThreadStart(Run));
-                listnerThread.Start();
+                //Thread listnerThread = new Thread(new ThreadStart(Run));
+                //listnerThread.Start();
+                Run();
                 return "Server Started";
             }
             catch (WebException e)
@@ -144,6 +88,7 @@ namespace HttpServer
         }
 
 
+
         public void Run()
         {
             httpListener.Start();
@@ -151,20 +96,20 @@ namespace HttpServer
             {
                 HttpListenerContext context = httpListener.GetContext();
                 HttpListenerResponse response = context.Response;
-                
-                parser.URLParser(context.Request.Url.ToString());
-                
-                if (parser.LocalPath.Contains("/api/"))
+
+                _parser.URLParser(context.Request.Url.ToString());
+
+                if (_parser.LocalPath.Contains("/api/"))
                 {
-                    MethodTypeHelper method = new MethodTypeHelper();
-                    
-                    string methodName=method.GetMethod(context.Request.HttpMethod,parser.ApiParser());
-                   
+                    RESApi method = new RESApi();
+
+                    string methodName = method.GetMethod(context.Request.HttpMethod, _parser.ApiParser());
+
                     if (methodName != "No Such Method")
                     {
-                        
+
                         APIOperation aPIOperation = new APIOperation();
-                        var cleaned_data = request.GetRequestData(context);
+                        var cleaned_data = _request.GetRequestData(context);
                         JObject jsonObj = JObject.Parse(cleaned_data);
                         Dictionary<string, string> dictObj = jsonObj.ToObject<Dictionary<string, string>>();
                         string data = "";
@@ -173,110 +118,28 @@ namespace HttpServer
                             data += item.Value;
                         }
                         var output = aPIOperation.GetType().GetMethod(methodName).Invoke(aPIOperation, new object[] { data });
-                        responseGenrate.ResponseGenrator(output.ToString(), response);
+                        _responseGenrate.ResponseGenrator(output.ToString(), response);
                     }
                 }
                 else
                 {
-                    string page = dispatch.Applist[parser.BasePath] + parser.LocalPath;
+                    string page = _dispatch.Applist[_parser.BasePath] + _parser.LocalPath;
 
                     //Console.WriteLine(page);
 
                     try
                     {
-                        //if ((parser.LocalPath).ToLowerInvariant() == "/year")
-                        //{
-                        //    var data_text = new StreamReader(context.Request.InputStream,
-                        //    context.Request.ContentEncoding).ReadToEnd();
-                        //    var cleaned_data = System.Web.HttpUtility.UrlDecode(data_text);
-
-                        //    JObject currencies = JObject.Parse(cleaned_data);
-                        //    var year = currencies.SelectToken("year");
-                        //    byte[] buffer = Encoding.UTF8.GetBytes(year.ToString());
-
-                        //    response.ContentLength64 = buffer.Length;
-                        //    Stream st = response.OutputStream;
-                        //    st.Write(buffer, 0, buffer.Length);
-                        //}
-
-                        //var cleaned_data = request.GetRequestData(context);
-                        //if (cleaned_data.Length>0)
-                        //{
-                        //    try
-                        //    {
-                        //        JObject jsonObj = JObject.Parse(cleaned_data);
-                        //        //var year = currencies.SelectToken("year");
-                        //        Dictionary<string, string> dictObj = jsonObj.ToObject<Dictionary<string, string>>();
-                        //        string data = "";
-                        //        foreach (var item in dictObj)
-                        //        {
-                        //            data += item.Value;
-                        //        }
-
-                        //        //byte[] buffer = Encoding.UTF8.GetBytes(data.ToString());
-
-                        //        //response.ContentLength64 = buffer.Length;
-                        //        //Stream st = response.OutputStream;
-                        //        //st.Write(buffer, 0, buffer.Length);
-                        //        //response.StatusCode();
-                        //        responseGenrate.ResponseGenrator(data, response);
-
-                        //    }
-                        //    catch
-                        //    {
-                        //        //responseGenrate.ResponseGenrator("BAD REQUEST DATA", response);
-                        //        context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-                        //        responseGenrate.ResponseGenrator("BAD REQUEST DATA", response);
-                        //    }
-                        //}
-                        //else
                         {
-
-                            IWebsite website = websiteFactory.GetWebsite(page);
-                            website.Handle(responseGenrate, context, page, response);
+                            _website.Handle(_responseGenrate, context, page, response);
                         }
                     }
                     catch
                     {
-                        error.Error404NotFound(dispatch, responseGenrate, response, context, page);
+                        _error.Error404NotFound(_dispatch, _responseGenrate, response, context, page);
                     }
                 }
             }
         }
     }
 
-    public class Request
-    {
-        public string GetRequestData(HttpListenerContext context)
-        {
-            var data_text = new StreamReader(context.Request.InputStream,
-            context.Request.ContentEncoding).ReadToEnd();
-            return System.Web.HttpUtility.UrlDecode(data_text);
-        }
-    }
-
-    public class Response {
-        public void ResponseGenrator(string page,HttpListenerResponse response) {
-
-            if (File.Exists(page)) {
-                TextReader tr = new StreamReader(page);
-                page = tr.ReadToEnd();
-                tr.Close();
-            }
-
-            byte[] buffer = Encoding.UTF8.GetBytes(page);
-            try
-            {
-                response.ContentLength64 = buffer.Length;
-                Stream st = response.OutputStream;
-                st.Write(buffer, 0, buffer.Length);
-                st.Close();
-            }
-            catch { }
-        }
-    }
-
-    public class SystemConfiguration {
-
-    }
 }
